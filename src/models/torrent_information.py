@@ -21,14 +21,14 @@ class TorrentInfo:
                 self.files.append(File(file_dict))
         else:
             self.multi_file = False #single file torrent
-            self.length = info_dict.get(b'length')
+            self.file_length = info_dict.get(b'length')
 
     def __str__(self):
         info_string = f'\n multi_file: {self.multi_file} \n piece_length: {self.piece_length} \n private: {self.private} \n'
         if self.multi_file:
             final_string = info_string + f' directory_name: {self.name} \n' + "".join([str(single_file) for single_file in self.files])
         else:
-            final_string = info_string + f' file_name: {self.name}' + f' length: {self.length}'          
+            final_string = info_string + f' file_name: {self.name} \n' + f' length: {self.file_length}'          
         return final_string
 
 
@@ -47,3 +47,13 @@ class TorrentMetaData:
 
     def decode_announce_list(self, b_announce_list):
         return [[link.decode() for link in link_list] for link_list in b_announce_list]
+
+    def get_total_file_size(self):
+        if self.info.multi_file:
+            files_list = self.info.files
+            size = 0
+            for single_file in files_list:
+                size += single_file.file_length
+            return size
+        else:
+            return self.info.file_length
