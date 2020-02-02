@@ -2,27 +2,30 @@ from bencode import bencode, bdecode
 from helpers import generate_sha1_hash, generate_unique_id
 from pathlib import Path
 
-class File:
-    def __init__(self, file_dict):
-        self.file_length = file_dict.get(b'length')
-        path_list = [x.decode() for x in file_dict.get(b'path')]
-        self.file_path = Path("/".join(path_list))
-
 class TorrentInfo:
     def __init__(self, info_dict):
+        self.info_dict    = info_dict
         self.piece_length = info_dict.get(b'piece length', 0)
         self.pieces       = info_dict.get(b'pieces', b'')
         self.private      = info_dict.get(b'private', b'0')
-        self.name         = info_dict.get(b'name', b'')
+        self.total_length = 0
+        self.files        = []
+        self.init_files()
 
-        if b'files' in info_dict:
-            self.multi_file = True # multi file torrent
-            self.files = []
-            for file_dict in info_dict.get(b'files'):
-                self.files.append(File(file_dict))
+    def init_files(self):
+        root = Path(self.info_dict.get(b'name').decode())
+
+        if b'files' in self.info_dict:
+            if not root.exists():
+                Path.mkdir(root)
+            
+            for file in self.info_dict.get(b'files'):
+                path_list = [x.decode() for x in file.get(b'path')]
+                self.files.append({"file_path" : root / Path("/".join(path_list)), "length" : file.get(b'length')})
+                self.total_length += file.get(b'length')
         else:
-            self.multi_file = False #single file torrent
-            self.file_length = info_dict.get(b'length')
+            self.files.append({"file_path" : root, "length" : self.info_dict.get(b'length')})
+            self.total_length = self.info_dict.get(b'length')
 
 class Torrent:
     def __init__(self):
@@ -50,7 +53,6 @@ class Torrent:
         self.info_hash = generate_sha1_hash(bencode(self.torrent_file.get(b'info')))
         if b'encoding' in self.torrent_file:
             self.encoding = self.torrent_file.get(b'encoding')
-        
     
     def get_trakers(self):
         if b'announce-list' in self.torrent_file:
@@ -68,5 +70,4 @@ class Torrent:
 if __name__ == "__main__":
     new_torrent = Torrent()
     new_torrent.load_from_file("D:\Practice\Projects\Torrent_Client\Ford v Ferrari (2019) [1080p] [BluRay] [5.1] [YTS.LT].torrent")
-    print(new_torrent.info_hash)
         
