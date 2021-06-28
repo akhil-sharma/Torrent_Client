@@ -1,79 +1,83 @@
-from bencode import bencode, bdecode
+'''
+Reads a torrent file and stores the
+necessary information present in it.
+'''
+from os import PathLike
 from pathlib import Path
+from math import ceil, log
 import logging
+
+from bencode import bdecode, bencode
+
 from helpers import generate_sha1_hash, generate_unique_id
-from math import ceil
-
-class TorrentInfo:
-    def __init__(self, info_dict):
-        self.info_dict    = info_dict
-        self.piece_length = info_dict.get(b'piece length', 0)
-        self.pieces       = info_dict.get(b'pieces', b'')
-        self.private      = info_dict.get(b'private', b'0')
-        self.name         = info_dict.get(b'name')
-        self.total_length = 0 #lenght of a single file or the sum of all files.
-        self.files        = [] #list of dictionaries containing file details
-        self.multi_file   = None
-        self.init_files()
-
-    def init_files(self):
-        root = Path(self.name.decode())
-        if b'files' in self.info_dict:
-            if not root.exists():
-                Path.mkdir(root)
-            
-            for file in self.info_dict.get(b'files'):
-                file_path = Path("/".join([x.decode() for x in file.get(b'path')]))
-                self.files.append({"file_path" : root / file_path, "length" : file.get(b'length')})
-                self.total_length += file.get(b'length')
-        else:
-            self.files.append({"file_path" : root, "length" : self.info_dict.get(b'length')})
-            self.total_length = self.info_dict.get(b'length')
 
 class Torrent:
-    def __init__(self):
-        self.torrent_file = None
-        self.peer_id = None
-        self.info_hash = None
-        self.info = None
-        self.file_list = None
-        self.announce_list = None
-        self.creation_data = None
-        self.comment = None
-        self.created_by = None
-        self.encoding = 'utf-8'
+    def __init__(self, torrent_file_path: str, destination: str = None) -> None:
+        self.total_length = 0
+        self.files = []
+        self._load_from_file(torrent_file_path)
+        self._init_files(destination)
+        logging.debug(self.get_files())
+        logging.debug(self.get_total_file_size())
+        logging.debug(self.get_total_piece_count())
 
-    def load_from_file(self, file_path):
-        file = open(Path(file_path), mode='rb').read()
+    def _load_from_file(self, torrent_file_path: str):
+        file = open(Path(torrent_file_path), mode='rb').read()
         file_contents = bdecode(file)
-
-        self.torrent_file = file_contents
         self.peer_id = generate_unique_id('-AS0001-')
-        self.info = TorrentInfo(self.torrent_file.get(b'info'))
-        self.announce_list = self.get_trakers()
-        self.creation_data = self.torrent_file.get(b'creation date')
-        self.comment = self.torrent_file.get(b'comment')
-        self.created_by = self.torrent_file.get(b'created by')
-        self.info_hash = generate_sha1_hash(bencode(self.torrent_file.get(b'info')))
-        if b'encoding' in self.torrent_file:
-            self.encoding = self.torrent_file.get(b'encoding')
-        
-        logging.debug(self.announce_list)
+        self.info = file_contents[b'info']
+        self.name = file_contents[b'info'][b'name']
+        self.pieces = file_contents[b'info'][b'pieces']
+        self.piece_length = file_contents[b'info'][b'piece length']
+        self.announce_list = self._get_trackers(file_contents)
+        self.info_hash = generate_sha1_hash(bencode(self.info))
+        logging.debug(self.announce_list)        
 
-        assert(self.info.total_length > 0)
-        assert(len(self.info.files) > 0)
-    
-    def get_trakers(self):
-        if b'announce-list' in self.torrent_file:
-            return self.torrent_file.get(b'announce-list')
+    def _get_trackers(self, file_contents: dict) -> list:
+        '''
+        Returns the list of trackers mentions in the torrent file.
+        '''
+        if b'announce-list' in file_contents:
+            return file_contents.get(b'announce-list')
         else:
-            return [[self.torrent_file.get(b'announce')]]
+            return [[file_contents.get(b'announce')]]
+
+    def _init_files(self, dest: str):
+        '''
+        Creates the root directory for the files to be downloaded
+        and populates the files list locations and sizes of the 
+        individual files.
+        '''
+        root = Path(self.name.decode())
+        if dest:
+            destination = Path(dest)
+            if not destination.exists():
+                Path.mkdir(destination)
+            
+            root = Path(destination) / root
+        
+        if b'files' in self.info:
+            if not root.exists():
+                Path.mkdir(root)
+            for file in self.info[b'files']:
+                file_path = Path("/".join([x.decode() for x in file[b'path']]))
+                self.files.append({"file_path": root / file_path, "length": file[b'length']})
+                self.total_length += file[b'length']
+        else:
+            self.files.append({"file_path": root, "length": self.info[b'length']})
+            self.total_length = self.info[b'length']
 
     def get_total_file_size(self):
-        return self.info.total_length
+        return self.total_length
 
     def get_total_piece_count(self):
-        if self.info.piece_length == 0:
-            return 0
-        return ceil(self.info.total_length / self.info.piece_length)
+        return ceil(self.total_length / self.piece_length)
 
+    def get_files(self) -> list:
+        return self.files
+
+    def get_announce_list(self) -> list:
+        return self.announce_list
+
+    def __repr__(self) -> str:
+        pass
