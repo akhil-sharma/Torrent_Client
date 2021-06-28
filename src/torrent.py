@@ -1,6 +1,8 @@
 from bencode import bencode, bdecode
-from helpers import generate_sha1_hash, generate_unique_id
 from pathlib import Path
+import logging
+from helpers import generate_sha1_hash, generate_unique_id
+from math import ceil
 
 class TorrentInfo:
     def __init__(self, info_dict):
@@ -8,20 +10,21 @@ class TorrentInfo:
         self.piece_length = info_dict.get(b'piece length', 0)
         self.pieces       = info_dict.get(b'pieces', b'')
         self.private      = info_dict.get(b'private', b'0')
-        self.total_length = 0
-        self.files        = []
+        self.name         = info_dict.get(b'name')
+        self.total_length = 0 #lenght of a single file or the sum of all files.
+        self.files        = [] #list of dictionaries containing file details
+        self.multi_file   = None
         self.init_files()
 
     def init_files(self):
-        root = Path(self.info_dict.get(b'name').decode())
-
+        root = Path(self.name.decode())
         if b'files' in self.info_dict:
             if not root.exists():
                 Path.mkdir(root)
             
             for file in self.info_dict.get(b'files'):
-                path_list = [x.decode() for x in file.get(b'path')]
-                self.files.append({"file_path" : root / Path("/".join(path_list)), "length" : file.get(b'length')})
+                file_path = Path("/".join([x.decode() for x in file.get(b'path')]))
+                self.files.append({"file_path" : root / file_path, "length" : file.get(b'length')})
                 self.total_length += file.get(b'length')
         else:
             self.files.append({"file_path" : root, "length" : self.info_dict.get(b'length')})
@@ -33,6 +36,7 @@ class Torrent:
         self.peer_id = None
         self.info_hash = None
         self.info = None
+        self.file_list = None
         self.announce_list = None
         self.creation_data = None
         self.comment = None
@@ -44,7 +48,7 @@ class Torrent:
         file_contents = bdecode(file)
 
         self.torrent_file = file_contents
-        self.peer_id = generate_unique_id('Test')
+        self.peer_id = generate_unique_id('-AS0001-')
         self.info = TorrentInfo(self.torrent_file.get(b'info'))
         self.announce_list = self.get_trakers()
         self.creation_data = self.torrent_file.get(b'creation date')
@@ -53,6 +57,11 @@ class Torrent:
         self.info_hash = generate_sha1_hash(bencode(self.torrent_file.get(b'info')))
         if b'encoding' in self.torrent_file:
             self.encoding = self.torrent_file.get(b'encoding')
+        
+        logging.debug(self.announce_list)
+
+        assert(self.info.total_length > 0)
+        assert(len(self.info.files) > 0)
     
     def get_trakers(self):
         if b'announce-list' in self.torrent_file:
@@ -61,13 +70,10 @@ class Torrent:
             return [[self.torrent_file.get(b'announce')]]
 
     def get_total_file_size(self):
-        if self.info.multi_file:
-            return sum([file.file_length for file in self.file_list])
-        else:
-            return self.info.file_length
+        return self.info.total_length
 
+    def get_total_piece_count(self):
+        if self.info.piece_length == 0:
+            return 0
+        return ceil(self.info.total_length / self.info.piece_length)
 
-if __name__ == "__main__":
-    new_torrent = Torrent()
-    new_torrent.load_from_file("D:\Practice\Projects\Torrent_Client\Ford v Ferrari (2019) [1080p] [BluRay] [5.1] [YTS.LT].torrent")
-        
