@@ -1,3 +1,4 @@
 .vscode
 *.pcapng
 *__pycache__*
+resources/downloads
